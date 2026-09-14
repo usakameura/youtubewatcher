@@ -44,6 +44,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
 .zoom button.on{background:var(--gold);color:#1a1200;font-weight:700}
 
 /* remote */
+.tabbar{max-width:1600px;margin:0 auto;padding:12px 16px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tabnote{font-size:11.5px;color:var(--tx3)}
 .remote{max-width:1600px;margin:0 auto;padding:12px 16px 4px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
 .rbtn{border:1px solid var(--line2);border-radius:7px;padding:6px 11px;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--tx2)}
 .rbtn b{font-family:'Bebas Neue',sans-serif;font-size:17px;line-height:1}
@@ -119,7 +121,41 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--gold);color:var(--tx);padding:11px 18px;border-radius:9px;font-size:13px;z-index:200;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
 .toast.on{opacity:1}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-@media(max-width:700px){.brand{font-size:24px}.clock{font-size:20px}.epg{max-height:68vh}}
+@media(max-width:760px){
+  :root{--gutter:42px}
+  body{font-size:13px}
+  .top-in{padding:9px 11px;gap:8px}
+  .brand{font-size:20px}
+  .brand small{font-size:8.5px;letter-spacing:.1em}
+  .clock{font-size:17px}
+  .clock span{font-size:11px;margin-left:5px}
+  .btn{padding:6px 9px;font-size:11.5px}
+  .zoom button{padding:6px 9px;font-size:11px}
+  .tabbar{padding:9px 11px 0;gap:8px}
+  .tabnote{font-size:10.5px;width:100%}
+  .remote{padding:9px 11px 2px;gap:5px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .remote::-webkit-scrollbar{display:none}
+  .rbtn{flex-shrink:0;padding:5px 9px}
+  .rbtn b{font-size:15px}
+  .wrap{padding:6px 11px 28px}
+  .epg{max-height:72vh;border-radius:10px}
+  .grid{min-width:720px}
+  .chh{padding:7px 6px}
+  .chh b{font-size:15px}
+  .chh i{font-size:11px}
+  .gut .t{font-size:12px;padding-left:5px}
+  .blk{padding:3px 5px;left:1px;right:1px}
+  .blk .ti{font-size:11px}
+  .blk .mt{font-size:9.5px}
+  .ov{padding:0}
+  .md{max-width:100%;max-height:100vh;border-radius:0;border:0}
+  .md-h{padding:11px 13px;position:sticky;top:0;background:var(--bg2);z-index:2}
+  .md-b{padding:13px}
+  .row{padding:10px 0}
+  .row .rt{white-space:normal}
+  .zap{gap:6px}
+  .status{padding:9px 11px;font-size:11.5px}
+}
 </style>
 </head>
 <body>
@@ -131,15 +167,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
   <div class="zoom" id="zoom"></div>
   <button class="btn" id="btnNow">現在へ</button>
   <button class="btn" id="btnMy">予約・お気に入り</button>
-  <button class="btn" id="btnDemo">デモ編成</button>
   <button class="btn" id="btnSet">設定</button>
   <button class="btn pri" id="btnLoad">番組表を更新</button>
 </div></div>
 
+<div class="tabbar">
+  <div class="zoom" id="tabs"></div>
+  <span class="tabnote" id="tabnote"></span>
+</div>
 <div class="remote" id="remote"></div>
 <div class="wrap">
   <div class="epg" id="epg"><div class="grid" id="grid"></div></div>
-  <div class="status" id="status">「デモ編成」で動作を確認できます。実データはAPIキーを設定してから「番組表を更新」。</div>
+  <div class="status" id="status">番組表を読み込んでいます…</div>
 </div>
 
 <div class="ov" id="ovPlay"><div class="md">
@@ -192,9 +231,17 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
       <div class="hint">anon キーは公開される前提のものです。RLSで読み取り専用にしてあるので、これだけでは番組表を書き換えられません。</div>
     </div>
     <div class="fld">
-      <label for="fRegion">地域コード</label>
-      <input type="text" id="fRegion" value="JP">
-      <div class="hint">epg_cache の key と一致させてください。</div>
+      <label for="fRegion">主な地域</label>
+      <input type="text" id="fRegion">
+      <div class="hint" id="hRegion"></div>
+    </div>
+    <div class="fld">
+      <label for="fExtra">追加で混ぜる地域（カンマ区切り、任意）</label>
+      <input type="text" id="fExtra" placeholder="US, KR, TW">
+      <div class="hint">Edge Function でその地域を取得済みである必要があります。ライブとプレミアは主な地域のみです。</div>
+    </div>
+    <div class="fld"><label class="chk"><input type="checkbox" id="fLangOnly"> 自分の言語の動画だけ表示する</label>
+      <div class="hint" id="hLang"></div>
     </div>
     <div class="fld">
       <label>構成</label>
@@ -241,9 +288,6 @@ var MIN_SLOT = 600000;    /* 最小の番組枠。これを下回る枠は作ら
 var MAX_BUNDLE = 6;       /* 1枠にまとめるショート動画の上限本数 */
 var ZOOMS = [2.2, 3.2, 4.6];
 
-var cfg = {
-  region: DEFAULTS.region, sbUrl: DEFAULTS.sbUrl, sbKey: DEFAULTS.sbKey
-};
 /* localStorage が使えない環境ではメモリに退避する */
 var store = (function(){
   var mem = {}, ok = false;
@@ -268,19 +312,57 @@ var store = (function(){
   };
 })();
 
+/* 端末の言語設定から国と言語を推定する */
+function deviceLocale(){
+  var tag = 'ja-JP';
+  try { tag = (navigator.languages && navigator.languages[0]) || navigator.language || 'ja-JP'; }
+  catch (e) { /* noop */ }
+  var p = String(tag).split('-');
+  var lang = (p[0] || 'ja').toLowerCase();
+  var country = p.length > 1 ? p[p.length - 1].toUpperCase() : '';
+  if (!/^[A-Z]{2}$/.test(country)){
+    var m = { ja:'JP', ko:'KR', en:'US', zh:'TW', th:'TH', vi:'VN', id:'ID',
+              fr:'FR', de:'DE', es:'ES', pt:'BR', it:'IT', ru:'RU', hi:'IN' };
+    country = m[lang] || 'US';
+  }
+  return { lang: lang, country: country };
+}
+var DEV = deviceLocale();
+
+/* 日本語かどうかの推定に使う。lang が未設定の動画が多いため文字種でも判定する */
+var SCRIPT_RE = {
+  ja: /[ぁ-んァ-ヶ]/,
+  ko: /[가-힣]/,
+  zh: /[\u4e00-\u9fff]/,
+  th: /[\u0e00-\u0e7f]/,
+  ru: /[А-Яа-я]/
+};
+
 var favVideos   = store.get('epg.favVideos', {});    /* videoId -> {title, channelTitle} */
 var favChannels = store.get('epg.favChannels', {});  /* channelTitle -> 1 */
 var reminders   = store.get('epg.reminders', []);    /* [{videoId,title,channelTitle,start,premiere,fired}] */
 var leadMin     = store.get('epg.leadMin', 5);
 var upcomingList = [];
 
-var pxPerMin = ZOOMS[1];
+var cfg = {
+  sbUrl: DEFAULTS.sbUrl,
+  sbKey: DEFAULTS.sbKey,
+  region: store.get('epg.region', DEV.country),          /* 主地域 */
+  extraRegions: store.get('epg.extraRegions', []),       /* 追加で混ぜる国 */
+  langOnly: store.get('epg.langOnly', true),             /* 自国の言語のみ */
+  lang: store.get('epg.lang', DEV.lang),
+  view: store.get('epg.view', 'normal')     /* normal | kids */
+};
+
+var pxPerMin = (typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 760)
+  ? ZOOMS[1] : ZOOMS[0];
 var schedule = {};      /* chNo -> blocks[] */
 var flatBlocks = [];    /* 全番組（クリック参照用） */
 var dayStart = 0, dayEnd = 0;
 var editingBlockIdx = -1;   /* 再生中の番組インデックス（グローバル保持） */
 var player = null, ytReady = false, pendingPlay = null;
 var playTarget = null;   /* 再生中の動画（まとめ枠なら該当の1本） */
+var lastRes = null;      /* 直近の取得結果。タブ切替で再取得しないため */
 
 /* ============================================================
    ユーティリティ
@@ -489,6 +571,40 @@ function buildSchedule(vids, lives, baseDate){
 }
 
 /* ============================================================
+   地域・言語の絞り込み
+   ============================================================ */
+function regionList(){
+  var out = [cfg.region];
+  for (var i = 0; i < cfg.extraRegions.length; i++){
+    if (out.indexOf(cfg.extraRegions[i]) < 0) out.push(cfg.extraRegions[i]);
+  }
+  return out;
+}
+
+/* 動画が対象言語かどうか。lang が空の動画が多いので文字種でも推定する */
+function matchesLang(v, code){
+  var l = (v.lang || '').split('-')[0];
+  if (l) return l === code;
+  var re = SCRIPT_RE[code];
+  if (re) return re.test(v.title || '');
+  return true;   /* 推定手段が無い言語は落とさない */
+}
+
+function applyFilters(vids){
+  var out = [], seen = {}, i, v;
+  for (i = 0; i < vids.length; i++){
+    v = vids[i];
+    if (seen[v.videoId]) continue;
+    if (cfg.view === 'kids'){ if (!v.kids) continue; }
+    else if (v.kids) continue;
+    if (cfg.langOnly && !matchesLang(v, cfg.lang)) continue;
+    seen[v.videoId] = 1;
+    out.push(v);
+  }
+  return out;
+}
+
+/* ============================================================
    お気に入り・視聴予約
    ============================================================ */
 function saveFav(){
@@ -598,7 +714,9 @@ function checkReminders(){
 function render(){
   var grid = document.getElementById('grid');
   var totalPx = Math.round(1440 * pxPerMin);
-  grid.style.gridTemplateColumns = 'var(--gutter) repeat(' + CH.length + ', minmax(132px, 1fr))';
+  var narrow = (typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 760);
+  grid.style.gridTemplateColumns =
+    'var(--gutter) repeat(' + CH.length + ', minmax(' + (narrow ? 84 : 132) + 'px, 1fr))';
   grid.style.setProperty('--half', Math.round(30 * pxPerMin) + 'px');
 
   var h = '<div class="corner"></div>';
@@ -912,13 +1030,31 @@ function sbHeaders(){
 
 /* 番組表を読むだけ。YouTube APIはEdge Function側なので、ここからは触らない */
 async function loadFromCache(){
-  var url = cfg.sbUrl.replace(/\/$/, '') + '/rest/v1/epg_cache?key=eq.' +
-            encodeURIComponent(cfg.region) + '&select=payload,updated_at&limit=1';
+  var keys = regionList();
+  var url = cfg.sbUrl.replace(/\/$/, '') + '/rest/v1/epg_cache?key=in.(' +
+            keys.map(encodeURIComponent).join(',') + ')&select=key,payload,updated_at';
   var r = await fetch(url, { headers: sbHeaders() });
   if (!r.ok) throw new Error('Supabase ' + r.status + ' ' + (await r.text()).slice(0, 160));
   var rows = await r.json();
-  if (!rows.length) throw new Error('epg_cache に ' + cfg.region + ' の行がありません。Edge Functionを一度実行してください。');
-  return { payload: rows[0].payload, updatedAt: rows[0].updated_at };
+  if (!rows.length){
+    throw new Error('epg_cache に ' + keys.join(', ') + ' の行がありません。Edge Functionでその地域を取得してください。');
+  }
+
+  var vids = [], lives = [], upcoming = [], newest = 0, got = {}, i;
+  for (i = 0; i < rows.length; i++){
+    var pl = rows[i].payload || {};
+    got[rows[i].key] = 1;
+    vids = vids.concat(pl.vids || []);
+    /* ライブと予定は主地域のものだけ使う */
+    if (rows[i].key === cfg.region){
+      lives = lives.concat(pl.lives || []);
+      upcoming = upcoming.concat(pl.upcoming || []);
+    }
+    var t = new Date(rows[i].updated_at).getTime();
+    if (t > newest) newest = t;
+  }
+  var missing = keys.filter(function(k){ return !got[k]; });
+  return { vids: vids, lives: lives, upcoming: upcoming, updatedAt: newest, missing: missing };
 }
 
 /* 再生できなかった動画を報告する。insertのみ許可されたテーブル */
@@ -936,6 +1072,23 @@ async function reportBlocked(videoId, reason){
   } catch (e) { /* 報告失敗は視聴を止める理由にならないので握りつぶす */ }
 }
 
+/* 取得済みデータから編成し直す。タブや絞り込みの切り替え用 */
+function rebuildFrom(res){
+  var vids = applyFilters(res.vids);
+  if (!vids.length){
+    setStatus(cfg.view === 'kids'
+      ? '子ども向けの動画が0件でした。番組表タブに戻してください。'
+      : '条件に合う動画が0件でした。設定を見直してください。', true);
+    return;
+  }
+  upcomingList = res.upcoming || [];
+  schedule = buildSchedule(vids, cfg.view === 'kids' ? [] : (res.lives || []), new Date());
+  render();
+  scrollToNow();
+  setStatus('編成完了：' + regionList().join('+') + ' / 動画 ' + vids.length + '本' +
+            (cfg.view === 'kids' ? '（キッズ）' : ''));
+}
+
 async function loadReal(){
   if (!cfg.sbUrl || !cfg.sbKey){
     setStatus('Supabaseの接続情報が未設定です。設定から入力してください。', true);
@@ -945,22 +1098,30 @@ async function loadReal(){
   btn.disabled = true;
   try {
     var res = await loadFromCache();
-    var data = res.payload || {};
-    if (!data.vids || !data.vids.length){
-      setStatus('キャッシュに番組素材が入っていません。Edge Functionのログを確認してください。', true);
+    lastRes = res;
+    var raw = res.vids.length;
+    var vids = applyFilters(res.vids);
+
+    if (!vids.length){
+      setStatus(cfg.view === 'kids'
+        ? '子ども向けの動画が0件でした（取得 ' + raw + '本）。Edge Functionを更新すると増えることがあります。'
+        : '条件に合う動画が0件でした（取得 ' + raw + '本）。設定で「自国の言語のみ」を外すか、地域を見直してください。', true);
       return;
     }
-    upcomingList = data.upcoming || [];
-    schedule = buildSchedule(data.vids, data.lives || [], new Date());
+
+    upcomingList = res.upcoming || [];
+    schedule = buildSchedule(vids, res.lives || [], new Date());
     render();
     scrollToNow();
 
-    var age = Math.round((Date.now() - new Date(res.updatedAt).getTime()) / 60000);
+    var age = Math.round((Date.now() - res.updatedAt) / 60000);
     var ageLabel = age < 60 ? age + '分前' : Math.floor(age / 60) + '時間前';
-    setStatus('編成完了：動画 ' + data.vids.length + '本 / ライブ ' + (data.lives || []).length +
-              '本 / プレミア ' + upcomingList.length + '件（素材の取得は' + ageLabel + '）' +
-              (data.errs && data.errs.length ? ' / 取得時の警告: ' + data.errs.join(' / ') : ''),
-              !!(data.errs && data.errs.length));
+    var msg = '編成完了：' + regionList().join('+') + ' / 動画 ' + vids.length + '本';
+    msg += '（' + raw + '本から絞り込み）';
+    msg += ' / ライブ ' + (res.lives || []).length + '本 / プレミア ' + upcomingList.length +
+           '件（取得は' + ageLabel + '）';
+    if (res.missing.length) msg += ' / 未取得の地域: ' + res.missing.join(', ');
+    setStatus(msg, res.missing.length > 0);
   } catch (e){
     setStatus('番組表の取得に失敗しました：' + e.message, true);
   } finally {
@@ -969,60 +1130,21 @@ async function loadReal(){
 }
 
 /* ============================================================
-   デモ編成
-   ============================================================ */
-var DEMO_TITLES = {
-  1:['最新ヒットMVまとめ','弾き語りセッション','作業用チルBGM','ライブツアー2026 東京公演','ピアノで弾くアニソン'],
-  2:['新作RPG 実況プレイ','高難易度ボス攻略解説','対戦環境まとめ','レトロゲーム縛りプレイ','初見プレイ 第12話'],
-  3:['5分でわかる為替のしくみ','世界史 近代編','統計学入門','英語リスニング 毎日15分','宇宙望遠鏡が捉えた銀河'],
-  4:['今日のニュース まとめ','物価と賃金を読み解く','週間ニュース ダイジェスト','国会中継 解説つき','災害情報 まとめ'],
-  5:['大食い企画 リベンジ','ドッキリ大作戦','雑談ラジオ 第89回','街角インタビュー','コント3本立て'],
-  6:['試合ハイライト 前半','トレーニング解説','ランニングフォーム改善','格闘技 名勝負集','スポーツ雑談'],
-  7:['10分の掃除ルーティン','ひとり暮らしの節約ごはん','部屋づくりのコツ','旅の持ち物リスト','DIY 棚をつくる'],
-  8:['ドキュメンタリー 前編','愛犬との一日','愛車レビュー','短編アニメーション','風景ドライブ映像']
-};
-
-function demo(){
-  var rnd = mulberry32(seedOf('demo-' + startOfDay(new Date())));
-  var vids = [], lives = [];
-  CH.forEach(function(c){
-    var titles = DEMO_TITLES[c.no];
-    for (var i = 0; i < 40; i++){
-      var mins = [4, 7, 11, 15, 22, 28, 35, 48, 62][Math.floor(rnd() * 9)];
-      vids.push({
-        videoId: null, title: titles[i % titles.length] + ' #' + (i + 1),
-        channelTitle: c.name + 'チャンネル' + (1 + (i % 5)),
-        thumb: '', durSec: mins * 60 + Math.floor(rnd() * 40), ch: c.no,
-        rank: i, views: Math.floor(rnd() * 8000000)
-      });
-    }
-  });
-  var base = startOfDay(new Date());
-  lives.push({ videoId: null, title: '記者会見 生中継', channelTitle: 'ニュースLIVE', thumb: '',
-               start: base + 20 * 3600000, end: base + 21.5 * 3600000, ch: 4 });
-  lives.push({ videoId: null, title: 'ナイトゲーム 実況配信', channelTitle: 'スポーツLIVE', thumb: '',
-               start: base + 18 * 3600000, end: base + 21 * 3600000, ch: 6 });
-  lives.push({ videoId: null, title: '深夜の雑談配信', channelTitle: '雑談LIVE', thumb: '',
-               start: base + 23 * 3600000, end: base + 25 * 3600000, ch: 5 });
-
-  upcomingList = [
-    { videoId: null, title: '新曲MV プレミア公開', channelTitle: '音楽チャンネル1',
-      thumb: '', ch: 1, start: base + 30 * 3600000, durSec: 245, premiere: true },
-    { videoId: null, title: '大型アップデート発表会', channelTitle: 'ゲームチャンネル2',
-      thumb: '', ch: 2, start: base + 44 * 3600000, durSec: 0, premiere: false },
-    { videoId: null, title: 'ドキュメンタリー 後編 プレミア公開', channelTitle: '映像チャンネル3',
-      thumb: '', ch: 8, start: base + 67 * 3600000, durSec: 1820, premiere: true }
-  ];
-
-  schedule = buildSchedule(vids, lives, new Date());
-  render();
-  scrollToNow();
-  setStatus('デモ編成を表示中です。番組をクリックすると再生モーダルが開きます（デモ動画IDはありません）。');
-}
-
-/* ============================================================
    イベント
    ============================================================ */
+function renderTabs(){
+  var tabs = [['normal', '番組表'], ['kids', 'キッズ']], h = '', i;
+  for (i = 0; i < tabs.length; i++){
+    h += '<button data-tab="' + tabs[i][0] + '"' +
+         (cfg.view === tabs[i][0] ? ' class="on"' : '') + '>' + tabs[i][1] + '</button>';
+  }
+  document.getElementById('tabs').innerHTML = h;
+  document.getElementById('tabnote').textContent =
+    cfg.view === 'kids'
+      ? 'YouTubeが子ども向けと指定した動画だけで編成しています'
+      : '';
+}
+
 function renderZoom(){
   var h = '';
   ['粗','標準','細'].forEach(function(lbl, i){
@@ -1043,10 +1165,7 @@ document.getElementById('grid').addEventListener('click', function(e){
   var b = e.target.closest('.blk[data-idx]');
   if (!b) return;
   var idx = +b.getAttribute('data-idx');
-  if (!flatBlocks[idx] || !flatBlocks[idx].videoId){
-    setStatus('デモ編成には実際の動画IDがありません。APIキーを設定して「番組表を更新」を押してください。');
-    return;
-  }
+  if (!flatBlocks[idx] || !flatBlocks[idx].videoId) return;
   play(idx, false);
 });
 
@@ -1139,8 +1258,24 @@ document.getElementById('pRem').addEventListener('click', function(){
   toast(hhmm(b.start) + ' に開始します。' + leadMin + '分前に通知します');
 });
 
+document.getElementById('tabs').addEventListener('click', function(e){
+  var b = e.target.closest('button[data-tab]');
+  if (!b) return;
+  var v = b.getAttribute('data-tab');
+  if (v === cfg.view) return;
+  cfg.view = v;
+  store.set('epg.view', v);
+  renderTabs();
+  if (lastRes) rebuildFrom(lastRes); else loadReal();
+});
+
+var resizeTimer = null;
+window.addEventListener('resize', function(){
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function(){ if (dayStart) render(); }, 250);
+});
+
 document.getElementById('btnNow').addEventListener('click', scrollToNow);
-document.getElementById('btnDemo').addEventListener('click', demo);
 document.getElementById('btnLoad').addEventListener('click', loadReal);
 document.getElementById('pClose').addEventListener('click', closePlayer);
 document.getElementById('zPrev').addEventListener('click', function(){ zap(-1); });
@@ -1156,12 +1291,29 @@ document.getElementById('btnSet').addEventListener('click', function(){
   document.getElementById('fSbUrl').value = cfg.sbUrl;
   document.getElementById('fSbKey').value = cfg.sbKey;
   document.getElementById('fRegion').value = cfg.region;
+  document.getElementById('fExtra').value = cfg.extraRegions.join(', ');
+  document.getElementById('fLangOnly').checked = cfg.langOnly;
+  document.getElementById('hRegion').textContent =
+    '端末の言語設定からは ' + DEV.country + ' と判定しています。変更できます。';
+  document.getElementById('hLang').textContent =
+    '対象言語は ' + cfg.lang + '。動画に言語指定が無い場合は、タイトルの文字種で推定します。';
   document.getElementById('ovSet').classList.add('on');
 });
 document.getElementById('sClose').addEventListener('click', function(){
   cfg.sbUrl = document.getElementById('fSbUrl').value.trim();
   cfg.sbKey = document.getElementById('fSbKey').value.trim();
-  cfg.region = document.getElementById('fRegion').value.trim().toUpperCase() || 'JP';
+  cfg.region = document.getElementById('fRegion').value.trim().toUpperCase() || DEV.country;
+  cfg.extraRegions = document.getElementById('fExtra').value
+    .split(',')
+    .map(function(x){ return x.trim().toUpperCase(); })
+    .filter(function(x){ return /^[A-Z]{2}$/.test(x) && x !== cfg.region; })
+    .slice(0, 5);
+  cfg.langOnly = document.getElementById('fLangOnly').checked;
+
+  store.set('epg.region', cfg.region);
+  store.set('epg.extraRegions', cfg.extraRegions);
+  store.set('epg.langOnly', cfg.langOnly);
+  store.set('epg.lang', cfg.lang);
   document.getElementById('ovSet').classList.remove('on');
 });
 document.getElementById('ovSet').addEventListener('click', function(e){
@@ -1181,10 +1333,11 @@ document.addEventListener('keydown', function(e){
 });
 
 renderZoom();
+renderTabs();
 updateNow();
 checkReminders();
 setInterval(function(){ updateNow(); renderRemote(); checkReminders(); }, 30000);
-demo();
+loadReal();
 </script>
 </body>
 </html>

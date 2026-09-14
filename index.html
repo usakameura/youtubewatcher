@@ -65,8 +65,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
 .blk:hover{filter:brightness(1.45)}
 .blk .ti{font-size:11.5px;line-height:1.3;color:var(--tx);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .blk .mt{font-size:10px;color:var(--tx3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.blk.short .ti{-webkit-line-clamp:1;font-size:10.5px}
-.blk.short .mt{display:none}
+.blk.h2 .ti{-webkit-line-clamp:2}
+.blk.h1 .ti{-webkit-line-clamp:1}
+.blk.h1 .mt{display:none}
+.tag.bdl{background:rgba(255,255,255,.14);color:var(--tx)}
 .blk.onair{box-shadow:inset 0 0 0 1px var(--gold)}
 .blk.filler{cursor:default;border-left-color:var(--tx3);background:rgba(255,255,255,.03)}
 .blk.filler:hover{filter:none}
@@ -102,6 +104,20 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
 .sql{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:10px;font-family:ui-monospace,monospace;font-size:11px;color:var(--tx2);white-space:pre;overflow:auto;margin-top:6px}
 .status{padding:9px 16px;font-size:12px;color:var(--tx2);border-top:1px solid var(--line);min-height:36px}
 .status.bad{color:#ff9a94}
+.sec{margin-bottom:20px}
+.sec h3{font-size:13px;font-weight:500;color:var(--tx2);margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line2)}
+.row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.row .rb{flex:1;min-width:0}
+.row .rt{font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .rs{font-size:11px;color:var(--tx3);margin-top:2px}
+.row .ra{flex-shrink:0;display:flex;gap:6px}
+.row .btn{padding:5px 10px;font-size:11.5px}
+.empty{font-size:12px;color:var(--tx3);padding:12px 0}
+.tag.pre{background:#b48cff;color:#1a0f2e}
+.tag.fav{background:var(--gold);color:#1a1200}
+.btn.on{background:var(--gold);color:#1a1200;border-color:var(--gold);font-weight:700}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--gold);color:var(--tx);padding:11px 18px;border-radius:9px;font-size:13px;z-index:200;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
+.toast.on{opacity:1}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media(max-width:700px){.brand{font-size:24px}.clock{font-size:20px}.epg{max-height:68vh}}
 </style>
@@ -114,6 +130,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
   <div class="sp"></div>
   <div class="zoom" id="zoom"></div>
   <button class="btn" id="btnNow">現在へ</button>
+  <button class="btn" id="btnMy">予約・お気に入り</button>
   <button class="btn" id="btnDemo">デモ編成</button>
   <button class="btn" id="btnSet">設定</button>
   <button class="btn pri" id="btnLoad">番組表を更新</button>
@@ -137,11 +154,30 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
       <button class="btn" id="zPrev">◀ 前のch</button>
       <button class="btn" id="zNext">次のch ▶</button>
       <button class="btn" id="pHead">最初から見る</button>
+      <button class="btn" id="pFav">★ 番組</button>
+      <button class="btn" id="pFavCh">★ チャンネル</button>
+      <button class="btn" id="pRem">視聴予約</button>
       <span id="pNext" style="font-size:12px;color:var(--tx3)"></span>
     </div>
     <div class="err" id="pErr"></div>
   </div>
 </div></div>
+
+<div class="ov" id="ovMy"><div class="md">
+  <div class="md-h"><h2>予約・お気に入り</h2><button class="btn" id="myClose">閉じる</button></div>
+  <div class="md-b" id="myBody">
+    <div class="sec"><h3>視聴予約</h3><div id="myRem"></div></div>
+    <div class="sec"><h3>プレミア公開・配信予定</h3><div id="myUp"></div></div>
+    <div class="sec"><h3>お気に入り</h3><div id="myFav"></div></div>
+    <div class="fld">
+      <label for="fLead">開始何分前に通知するか</label>
+      <input type="text" id="fLead" style="width:90px">
+    </div>
+    <div class="hint" id="myNote"></div>
+  </div>
+</div></div>
+
+<div class="toast" id="toast"></div>
 
 <div class="ov" id="ovSet"><div class="md set">
   <div class="md-h"><h2>設定</h2><button class="btn" id="sClose">閉じる</button></div>
@@ -201,18 +237,50 @@ var CH = [
 var CAT2CH = {};
 CH.forEach(function(c){ c.cats.forEach(function(k){ CAT2CH[k] = c.no; }); });
 
-var MIN_SLOT = 120000;    /* 2分未満の隙間は前番組を延長して埋める */
-var ZOOMS = [1.4, 2.2, 3.4];
+var MIN_SLOT = 600000;    /* 最小の番組枠。これを下回る枠は作らない＝タイトルが必ず入る */
+var MAX_BUNDLE = 6;       /* 1枠にまとめるショート動画の上限本数 */
+var ZOOMS = [2.2, 3.2, 4.6];
 
 var cfg = {
   region: DEFAULTS.region, sbUrl: DEFAULTS.sbUrl, sbKey: DEFAULTS.sbKey
 };
+/* localStorage が使えない環境ではメモリに退避する */
+var store = (function(){
+  var mem = {}, ok = false;
+  try {
+    window.localStorage.setItem('__epg_t', '1');
+    window.localStorage.removeItem('__epg_t');
+    ok = true;
+  } catch (e) { ok = false; }
+  return {
+    available: ok,
+    get: function(k, d){
+      try {
+        var v = ok ? window.localStorage.getItem(k) : mem[k];
+        return v == null ? d : JSON.parse(v);
+      } catch (e) { return d; }
+    },
+    set: function(k, v){
+      var t = JSON.stringify(v);
+      try { if (ok) window.localStorage.setItem(k, t); else mem[k] = t; }
+      catch (e) { mem[k] = t; }
+    }
+  };
+})();
+
+var favVideos   = store.get('epg.favVideos', {});    /* videoId -> {title, channelTitle} */
+var favChannels = store.get('epg.favChannels', {});  /* channelTitle -> 1 */
+var reminders   = store.get('epg.reminders', []);    /* [{videoId,title,channelTitle,start,premiere,fired}] */
+var leadMin     = store.get('epg.leadMin', 5);
+var upcomingList = [];
+
 var pxPerMin = ZOOMS[1];
 var schedule = {};      /* chNo -> blocks[] */
 var flatBlocks = [];    /* 全番組（クリック参照用） */
 var dayStart = 0, dayEnd = 0;
 var editingBlockIdx = -1;   /* 再生中の番組インデックス（グローバル保持） */
 var player = null, ytReady = false, pendingPlay = null;
+var playTarget = null;   /* 再生中の動画（まとめ枠なら該当の1本） */
 
 /* ============================================================
    ユーティリティ
@@ -223,11 +291,21 @@ function esc(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function pad2(n){ return (n < 10 ? '0' : '') + n; }
+function mdhm(ms){
+  var d = new Date(ms);
+  return (d.getMonth()+1) + '/' + d.getDate() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
 function hhmm(ms){ var d = new Date(ms); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
 function mmss(sec){
   sec = Math.max(0, Math.round(sec));
   var h = Math.floor(sec/3600), m = Math.floor(sec%3600/60), s = sec%60;
   return (h ? h + ':' + pad2(m) : m) + ':' + pad2(s);
+}
+function viewLabel(v){
+  if (!v) return '';
+  if (v >= 100000000) return (Math.round(v / 10000000) / 10) + '億回';
+  if (v >= 10000) return Math.round(v / 10000) + '万回';
+  return v + '回';
 }
 function durLabel(sec){
   var m = Math.round(sec/60);
@@ -269,6 +347,33 @@ function shuffled(arr, seedStr){
 /* ============================================================
    編成ロジック（案C：ライブは実時間、残りを仮想枠で埋める）
    ============================================================ */
+/* 時間帯の格付け。0=ゴールデン 1=準プライム 2=深夜早朝 */
+function tierOfHour(h){
+  if (h >= 19 && h < 23) return 0;
+  if ((h >= 7 && h < 10) || (h >= 12 && h < 14) || (h >= 17 && h < 19) || h === 23) return 1;
+  return 2;
+}
+
+/* 人気順に並べて3階層に割る。上位ほど良い時間帯に配置される */
+function tierPools(pool, seedStr){
+  var sorted = pool.slice().sort(function(a, b){
+    var ra = (a.rank == null ? 9999 : a.rank), rb = (b.rank == null ? 9999 : b.rank);
+    if (ra !== rb) return ra - rb;
+    return (b.views || 0) - (a.views || 0);
+  });
+  if (sorted.length < 9){
+    var all = shuffled(sorted, seedStr + '#all');
+    return [all, all, all];
+  }
+  var a = Math.round(sorted.length * 0.30);
+  var b = Math.round(sorted.length * 0.70);
+  return [
+    shuffled(sorted.slice(0, a), seedStr + '#t0'),
+    shuffled(sorted.slice(a, b), seedStr + '#t1'),
+    shuffled(sorted.slice(b),    seedStr + '#t2')
+  ];
+}
+
 function buildLane(dStart, dEnd, lives, pool, seedStr){
   var blocks = [];
 
@@ -297,23 +402,64 @@ function buildLane(dStart, dEnd, lives, pool, seedStr){
   }
   if (cursor < dEnd) gaps.push([cursor, dEnd]);
 
-  /* 3. アーカイブを尺順に詰める（プールは全ギャップで連続消費＝重複を減らす） */
-  var order = shuffled(pool, seedStr);
-  var ci = 0;
+  /* 3. 時間帯に応じた階層から動画を引いて埋める */
+  var tiers = tierPools(pool, seedStr);
+  var cur = [0, 0, 0];
+  function nextFrom(t){
+    if (!tiers[t] || !tiers[t].length) return null;
+    return tiers[t][cur[t]++ % tiers[t].length];
+  }
+
   for (i = 0; i < gaps.length; i++){
     var gs = gaps[i][0], ge = gaps[i][1], t = gs, guard = 0, firstIdx = blocks.length;
+
     while (ge - t >= MIN_SLOT && guard++ < 3000){
-      if (!order.length) break;
-      var v = order[ci++ % order.length];
-      var dur = v.durSec * 1000, truncated = false;
-      if (dur > ge - t){ dur = ge - t; truncated = true; }
-      if (dur < MIN_SLOT) continue;
-      blocks.push({
-        videoId: v.videoId, title: v.title, channelTitle: v.channelTitle, thumb: v.thumb,
-        durSec: v.durSec, start: t, end: t + dur, live: false, truncated: truncated
-      });
-      t += dur;
+      var tier = tierOfHour(new Date(t).getHours());
+      var v = nextFrom(tier);
+      if (!v) break;
+      var remain = ge - t;
+
+      if (v.durSec * 1000 < MIN_SLOT){
+        /* 短尺はまとめて1枠にする。枠がMIN_SLOTを超えるまで詰める */
+        var items = [], acc = 0, sub = t, g2 = 0, vv = v;
+        while (vv && g2++ < MAX_BUNDLE){
+          var d = vv.durSec * 1000;
+          if (acc + d > remain) break;
+          items.push({
+            videoId: vv.videoId, title: vv.title, channelTitle: vv.channelTitle,
+            durSec: vv.durSec, views: vv.views, start: sub, end: sub + d
+          });
+          acc += d; sub += d;
+          if (acc >= MIN_SLOT) break;
+          vv = nextFrom(tier);
+        }
+        if (!items.length) continue;
+        blocks.push({
+          bundle: true, items: items,
+          videoId: items[0].videoId,
+          title: items.length > 1
+            ? items[0].title + ' ほか' + (items.length - 1) + '本'
+            : items[0].title,
+          channelTitle: items.length > 1 ? 'ショートセレクション' : items[0].channelTitle,
+          views: items[0].views,
+          durSec: Math.round(acc / 1000),
+          start: t, end: t + acc, live: false
+        });
+        t += acc;
+      } else {
+        var dur = v.durSec * 1000, truncated = false;
+        if (dur > remain){ dur = remain; truncated = true; }
+        if (dur < MIN_SLOT) continue;
+        blocks.push({
+          videoId: v.videoId, title: v.title, channelTitle: v.channelTitle, thumb: v.thumb,
+          durSec: v.durSec, views: v.views, start: t, end: t + dur,
+          live: false, truncated: truncated
+        });
+        t += dur;
+      }
     }
+
+    /* 端数は前の番組を延ばして吸収する（細い枠を作らないため） */
     if (ge - t > 0){
       if (blocks.length > firstIdx && blocks[blocks.length-1].end === t){
         blocks[blocks.length-1].end = ge;
@@ -334,12 +480,116 @@ function buildSchedule(vids, lives, baseDate){
   var sch = {};
   CH.forEach(function(c){
     var pool = vids.filter(function(v){ return v.ch === c.no; });
-    /* そのジャンルが1本も取れなかった場合は全体プールから借りる（丸1日「放送休止」を防ぐ） */
-    if (pool.length < 3) pool = shuffled(vids, key + '#borrow' + c.no).slice(0, 40);
+    /* そのジャンルが1本も取れなかった場合は全体プールから借りる（丸一日「放送休止」を防ぐ） */
+    if (pool.length < 3) pool = shuffled(vids, key + '#borrow' + c.no).slice(0, 60);
     var lv = lives.filter(function(v){ return v.ch === c.no; });
     sch[c.no] = buildLane(dayStart, dayEnd, lv, pool, key + '#' + c.no);
   });
   return sch;
+}
+
+/* ============================================================
+   お気に入り・視聴予約
+   ============================================================ */
+function saveFav(){
+  store.set('epg.favVideos', favVideos);
+  store.set('epg.favChannels', favChannels);
+}
+function saveRem(){ store.set('epg.reminders', reminders); }
+
+function isFav(b){
+  if (!b) return false;
+  if (b.channelTitle && favChannels[b.channelTitle]) return true;
+  if (b.videoId && favVideos[b.videoId]) return true;
+  if (b.bundle && b.items){
+    for (var i = 0; i < b.items.length; i++){
+      if (favVideos[b.items[i].videoId]) return true;
+      if (favChannels[b.items[i].channelTitle]) return true;
+    }
+  }
+  return false;
+}
+
+function toggleFavVideo(v){
+  if (!v || !v.videoId) return false;
+  if (favVideos[v.videoId]) delete favVideos[v.videoId];
+  else favVideos[v.videoId] = { title: v.title, channelTitle: v.channelTitle };
+  saveFav();
+  return !!favVideos[v.videoId];
+}
+function toggleFavChannel(name){
+  if (!name) return false;
+  if (favChannels[name]) delete favChannels[name];
+  else favChannels[name] = 1;
+  saveFav();
+  return !!favChannels[name];
+}
+
+function hasReminder(videoId, start){
+  for (var i = 0; i < reminders.length; i++){
+    if (reminders[i].videoId === videoId && reminders[i].start === start) return true;
+  }
+  return false;
+}
+function addReminder(r){
+  if (hasReminder(r.videoId, r.start)) return false;
+  reminders.push({
+    videoId: r.videoId, title: r.title, channelTitle: r.channelTitle,
+    start: r.start, premiere: !!r.premiere, fired: false
+  });
+  reminders.sort(function(a, b){ return a.start - b.start; });
+  saveRem();
+  askNotify();
+  return true;
+}
+function removeReminder(videoId, start){
+  reminders = reminders.filter(function(r){
+    return !(r.videoId === videoId && r.start === start);
+  });
+  saveRem();
+}
+
+function askNotify(){
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'default'){
+    try { Notification.requestPermission(); } catch (e) { /* 古い実装は無視 */ }
+  }
+}
+
+var toastTimer = null;
+function toast(msg){
+  var el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('on');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('on'); }, 4500);
+}
+
+function fireReminder(r){
+  var msg = 'まもなく ' + hhmm(r.start) + ' 開始：' + r.title;
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+    try { new Notification('視聴予約', { body: msg, tag: r.videoId }); } catch (e) { /* noop */ }
+  }
+  toast(msg);
+}
+
+function checkReminders(){
+  var now = Date.now(), changed = false, i;
+  for (i = 0; i < reminders.length; i++){
+    var r = reminders[i];
+    if (r.fired) continue;
+    if (now >= r.start - leadMin * 60000 && now < r.start + 900000){
+      r.fired = true;
+      changed = true;
+      fireReminder(r);
+    }
+  }
+  var before = reminders.length;
+  /* 開始から1時間過ぎたものは掃除する */
+  reminders = reminders.filter(function(x){ return x.start + 3600000 > now; });
+  if (reminders.length !== before) changed = true;
+  if (changed) saveRem();
 }
 
 /* ============================================================
@@ -383,9 +633,13 @@ function render(){
              '<div class="ti">放送休止</div></div>';
         continue;
       }
-      var cls = 'blk' + (hgt < 26 ? ' short' : '');
+      var cls = 'blk' + (hgt < 30 ? ' h1' : (hgt < 52 ? ' h2' : ''));
       var tag = b.live ? '<span class="tag live">LIVE</span>' : '';
-      var meta = esc(b.channelTitle) + ' / ' + durLabel(b.durSec) + (b.truncated ? ' 途中まで' : '');
+      if (b.bundle && b.items.length > 1) tag += '<span class="tag bdl">' + b.items.length + '本</span>';
+      if (isFav(b)) tag += '<span class="tag fav">★</span>';
+      var vl = viewLabel(b.views);
+      var meta = esc(b.channelTitle) + ' / ' + durLabel(b.durSec) +
+                 (vl ? ' / ' + vl : '') + (b.truncated ? ' 途中まで' : '');
       s += '<button class="' + cls + '" data-idx="' + idx + '" ' +
            'style="top:' + top + 'px;height:' + hgt + 'px;border-left-color:' + c.color +
            ';background:' + c.color + '22">' +
@@ -399,6 +653,80 @@ function render(){
   grid.innerHTML = h;
   renderRemote();
   updateNow();
+}
+
+function setBtnState(id, on){
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (on) el.classList.add('on'); else el.classList.remove('on');
+}
+
+function renderMy(){
+  var h = '', i, r, u;
+
+  /* 視聴予約 */
+  if (!reminders.length){
+    h = '<div class="empty">予約はありません。番組をクリックして「視聴予約」を押すと登録されます。</div>';
+  } else {
+    for (i = 0; i < reminders.length; i++){
+      r = reminders[i];
+      h += '<div class="row"><div class="rb"><div class="rt">' +
+           (r.premiere ? '<span class="tag pre">プレミア</span>' : '') + esc(r.title) +
+           '</div><div class="rs">' + mdhm(r.start) + ' 開始 / ' + esc(r.channelTitle) +
+           (r.fired ? ' / 通知済み' : '') + '</div></div>' +
+           '<div class="ra"><button class="btn" data-act="unrem" data-id="' + esc(r.videoId) +
+           '" data-st="' + r.start + '">解除</button></div></div>';
+    }
+  }
+  document.getElementById('myRem').innerHTML = h;
+
+  /* プレミア公開・配信予定 */
+  h = '';
+  if (!upcomingList.length){
+    h = '<div class="empty">情報がありません。「番組表を更新」で取得されます。</div>';
+  } else {
+    for (i = 0; i < upcomingList.length; i++){
+      u = upcomingList[i];
+      var done = hasReminder(u.videoId, u.start);
+      h += '<div class="row"><div class="rb"><div class="rt">' +
+           (u.premiere ? '<span class="tag pre">プレミア</span>' : '<span class="tag live">配信予定</span>') +
+           esc(u.title) + '</div><div class="rs">' + mdhm(u.start) + ' 開始 / ' + esc(u.channelTitle) +
+           (u.premiere && u.durSec ? ' / ' + durLabel(u.durSec) : '') + '</div></div>' +
+           '<div class="ra"><button class="btn' + (done ? ' on' : '') + '" data-act="rem" data-idx="' + i +
+           '">' + (done ? '予約済み' : '予約') + '</button></div></div>';
+    }
+  }
+  document.getElementById('myUp').innerHTML = h;
+
+  /* お気に入り */
+  var ck = Object.keys(favChannels), vk = Object.keys(favVideos);
+  h = '';
+  if (!ck.length && !vk.length){
+    h = '<div class="empty">お気に入りはありません。番組の再生画面から登録できます。</div>';
+  } else {
+    for (i = 0; i < ck.length; i++){
+      h += '<div class="row"><div class="rb"><div class="rt">' + esc(ck[i]) +
+           '</div><div class="rs">チャンネル</div></div>' +
+           '<div class="ra"><button class="btn" data-act="unfavch" data-name="' + esc(ck[i]) +
+           '">解除</button></div></div>';
+    }
+    for (i = 0; i < vk.length; i++){
+      var fv = favVideos[vk[i]];
+      h += '<div class="row"><div class="rb"><div class="rt">' + esc(fv.title) +
+           '</div><div class="rs">番組 / ' + esc(fv.channelTitle) + '</div></div>' +
+           '<div class="ra"><button class="btn" data-act="unfav" data-id="' + esc(vk[i]) +
+           '">解除</button></div></div>';
+    }
+  }
+  document.getElementById('myFav').innerHTML = h;
+
+  document.getElementById('fLead').value = leadMin;
+
+  var note = '通知はこのページを開いている間だけ届きます。';
+  if (typeof Notification === 'undefined') note += ' このブラウザは通知に対応していません。';
+  else if (Notification.permission === 'denied') note += ' 通知がブロックされているため画面内表示のみになります。';
+  if (!store.available) note += ' 保存領域が使えないため、設定はページを閉じると消えます。';
+  document.getElementById('myNote').textContent = note;
 }
 
 function renderRemote(){
@@ -480,19 +808,42 @@ function play(idx, fromHead){
   editingBlockIdx = idx;
 
   var now = Date.now();
+
+  /* まとめ枠なら、いま放送中の1本を選ぶ */
+  var target = b, i;
+  if (b.bundle && b.items && b.items.length){
+    target = b.items[0];
+    for (i = 0; i < b.items.length; i++){
+      if (b.items[i].start <= now && now < b.items[i].end) target = b.items[i];
+    }
+  }
+  if (!target.videoId) return;
+
   var offset = 0;
-  if (!fromHead && !b.live && now > b.start && now < b.end){
-    offset = Math.floor((now - b.start) / 1000);
-    if (offset > b.durSec - 5) offset = 0;
+  if (!fromHead && !b.live && now > target.start && now < target.end){
+    offset = Math.floor((now - target.start) / 1000);
+    if (offset > target.durSec - 5) offset = 0;
   }
 
-  document.getElementById('pTitle').textContent = b.title;
+  document.getElementById('pTitle').textContent = target.title;
   var nx = nextBlock(b._ch);
+  var vl = viewLabel(target.views);
   document.getElementById('pMeta').innerHTML =
-    esc(b.channelTitle) + ' ・ ' + hhmm(b.start) + '〜' + hhmm(b.end) +
+    esc(target.channelTitle) + (vl ? ' ・ ' + vl : '') + ' ・ ' +
+    hhmm(target.start) + '〜' + hhmm(target.end) +
     (b.live ? ' ・ <span style="color:#ff6b6b">ライブ配信</span>'
-            : ' ・ ' + (offset > 0 ? mmss(offset) + ' から再生中' : '最初から'));
+            : ' ・ ' + (offset > 0 ? mmss(offset) + ' から再生中' : '最初から')) +
+    (b.bundle && b.items.length > 1
+      ? ' ・ まとめ枠 ' + (b.items.indexOf(target) + 1) + '/' + b.items.length : '');
   document.getElementById('pNext').textContent = nx ? '次は ' + hhmm(nx.start) + ' ' + nx.title : '';
+  playTarget = target;
+  setBtnState('pFav', !!favVideos[target.videoId]);
+  setBtnState('pFavCh', !!favChannels[target.channelTitle]);
+  var booked = hasReminder(b.videoId, b.start);
+  var remBtn = document.getElementById('pRem');
+  remBtn.textContent = booked ? '予約済み' : '視聴予約';
+  setBtnState('pRem', booked);
+
   document.getElementById('pErr').classList.remove('on');
   document.getElementById('ovPlay').classList.add('on');
 
@@ -501,12 +852,12 @@ function play(idx, fromHead){
 
   if (!player){
     player = new YT.Player('ytplayer', {
-      videoId: b.videoId,
+      videoId: target.videoId,
       playerVars: { autoplay: 1, start: offset, playsinline: 1, rel: 0 },
       events: { onError: onPlayerError }
     });
   } else {
-    player.loadVideoById({ videoId: b.videoId, startSeconds: offset });
+    player.loadVideoById({ videoId: target.videoId, startSeconds: offset });
   }
 }
 
@@ -515,7 +866,14 @@ function onPlayerError(){
   e.textContent = 'この動画は埋め込み再生できません。除外リストに報告したので、次回の素材更新から編成に出なくなります。';
   e.classList.add('on');
   var b = flatBlocks[editingBlockIdx];
-  if (b && b.videoId) reportBlocked(b.videoId, 'iframe player error');
+  if (!b) return;
+  var now = Date.now(), vid = b.videoId;
+  if (b.bundle && b.items){
+    for (var i = 0; i < b.items.length; i++){
+      if (b.items[i].start <= now && now < b.items[i].end) vid = b.items[i].videoId;
+    }
+  }
+  if (vid) reportBlocked(vid, 'iframe player error');
 }
 
 function closePlayer(){
@@ -592,6 +950,7 @@ async function loadReal(){
       setStatus('キャッシュに番組素材が入っていません。Edge Functionのログを確認してください。', true);
       return;
     }
+    upcomingList = data.upcoming || [];
     schedule = buildSchedule(data.vids, data.lives || [], new Date());
     render();
     scrollToNow();
@@ -599,7 +958,7 @@ async function loadReal(){
     var age = Math.round((Date.now() - new Date(res.updatedAt).getTime()) / 60000);
     var ageLabel = age < 60 ? age + '分前' : Math.floor(age / 60) + '時間前';
     setStatus('編成完了：動画 ' + data.vids.length + '本 / ライブ ' + (data.lives || []).length +
-              '本（素材の取得は' + ageLabel + '）' +
+              '本 / プレミア ' + upcomingList.length + '件（素材の取得は' + ageLabel + '）' +
               (data.errs && data.errs.length ? ' / 取得時の警告: ' + data.errs.join(' / ') : ''),
               !!(data.errs && data.errs.length));
   } catch (e){
@@ -633,7 +992,8 @@ function demo(){
       vids.push({
         videoId: null, title: titles[i % titles.length] + ' #' + (i + 1),
         channelTitle: c.name + 'チャンネル' + (1 + (i % 5)),
-        thumb: '', durSec: mins * 60 + Math.floor(rnd() * 40), ch: c.no
+        thumb: '', durSec: mins * 60 + Math.floor(rnd() * 40), ch: c.no,
+        rank: i, views: Math.floor(rnd() * 8000000)
       });
     }
   });
@@ -644,6 +1004,15 @@ function demo(){
                start: base + 18 * 3600000, end: base + 21 * 3600000, ch: 6 });
   lives.push({ videoId: null, title: '深夜の雑談配信', channelTitle: '雑談LIVE', thumb: '',
                start: base + 23 * 3600000, end: base + 25 * 3600000, ch: 5 });
+
+  upcomingList = [
+    { videoId: null, title: '新曲MV プレミア公開', channelTitle: '音楽チャンネル1',
+      thumb: '', ch: 1, start: base + 30 * 3600000, durSec: 245, premiere: true },
+    { videoId: null, title: '大型アップデート発表会', channelTitle: 'ゲームチャンネル2',
+      thumb: '', ch: 2, start: base + 44 * 3600000, durSec: 0, premiere: false },
+    { videoId: null, title: 'ドキュメンタリー 後編 プレミア公開', channelTitle: '映像チャンネル3',
+      thumb: '', ch: 8, start: base + 67 * 3600000, durSec: 1820, premiere: true }
+  ];
 
   schedule = buildSchedule(vids, lives, new Date());
   render();
@@ -691,6 +1060,85 @@ document.getElementById('remote').addEventListener('click', function(e){
   else setStatus('この時間は再生できる番組がありません。');
 });
 
+document.getElementById('btnMy').addEventListener('click', function(){
+  renderMy();
+  document.getElementById('ovMy').classList.add('on');
+});
+document.getElementById('myClose').addEventListener('click', function(){
+  document.getElementById('ovMy').classList.remove('on');
+});
+document.getElementById('ovMy').addEventListener('click', function(e){
+  if (e.target === this) document.getElementById('ovMy').classList.remove('on');
+});
+
+document.getElementById('myBody').addEventListener('click', function(e){
+  var b = e.target.closest('button[data-act]');
+  if (!b) return;
+  var act = b.getAttribute('data-act');
+
+  if (act === 'unrem'){
+    removeReminder(b.getAttribute('data-id'), +b.getAttribute('data-st'));
+  } else if (act === 'rem'){
+    var u = upcomingList[+b.getAttribute('data-idx')];
+    if (!u) return;
+    if (hasReminder(u.videoId, u.start)) removeReminder(u.videoId, u.start);
+    else {
+      addReminder(u);
+      toast('予約しました：' + mdhm(u.start) + ' ' + u.title);
+    }
+  } else if (act === 'unfav'){
+    delete favVideos[b.getAttribute('data-id')];
+    saveFav();
+  } else if (act === 'unfavch'){
+    delete favChannels[b.getAttribute('data-name')];
+    saveFav();
+  }
+  renderMy();
+  if (dayStart) render();
+});
+
+document.getElementById('fLead').addEventListener('change', function(){
+  var v = parseInt(this.value, 10);
+  leadMin = (isNaN(v) || v < 0) ? 5 : Math.min(v, 120);
+  this.value = leadMin;
+  store.set('epg.leadMin', leadMin);
+});
+
+document.getElementById('pFav').addEventListener('click', function(){
+  if (!playTarget) return;
+  var on = toggleFavVideo(playTarget);
+  setBtnState('pFav', on);
+  toast(on ? 'お気に入りに追加しました' : 'お気に入りを解除しました');
+  if (dayStart) render();
+});
+document.getElementById('pFavCh').addEventListener('click', function(){
+  if (!playTarget) return;
+  var on = toggleFavChannel(playTarget.channelTitle);
+  setBtnState('pFavCh', on);
+  toast(on ? esc(playTarget.channelTitle) + ' をお気に入りに追加しました'
+           : 'チャンネルのお気に入りを解除しました');
+  if (dayStart) render();
+});
+document.getElementById('pRem').addEventListener('click', function(){
+  var b = flatBlocks[editingBlockIdx];
+  if (!b) return;
+  if (hasReminder(b.videoId, b.start)){
+    removeReminder(b.videoId, b.start);
+    setBtnState('pRem', false);
+    this.textContent = '視聴予約';
+    toast('予約を解除しました');
+    return;
+  }
+  if (b.start <= Date.now()){
+    toast('この番組はすでに放送中です');
+    return;
+  }
+  addReminder({ videoId: b.videoId, title: b.title, channelTitle: b.channelTitle, start: b.start });
+  setBtnState('pRem', true);
+  this.textContent = '予約済み';
+  toast(hhmm(b.start) + ' に開始します。' + leadMin + '分前に通知します');
+});
+
 document.getElementById('btnNow').addEventListener('click', scrollToNow);
 document.getElementById('btnDemo').addEventListener('click', demo);
 document.getElementById('btnLoad').addEventListener('click', loadReal);
@@ -723,6 +1171,7 @@ document.getElementById('ovSet').addEventListener('click', function(e){
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape'){
     if (document.getElementById('ovPlay').classList.contains('on')) closePlayer();
+    else if (document.getElementById('ovMy').classList.contains('on')) document.getElementById('myClose').click();
     else if (document.getElementById('ovSet').classList.contains('on')) document.getElementById('sClose').click();
   }
   if (document.getElementById('ovPlay').classList.contains('on')){
@@ -733,7 +1182,8 @@ document.addEventListener('keydown', function(e){
 
 renderZoom();
 updateNow();
-setInterval(function(){ updateNow(); renderRemote(); }, 30000);
+checkReminders();
+setInterval(function(){ updateNow(); renderRemote(); checkReminders(); }, 30000);
 demo();
 </script>
 </body>

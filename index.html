@@ -147,56 +147,44 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outl
   <div class="md-h"><h2>設定</h2><button class="btn" id="sClose">閉じる</button></div>
   <div class="md-b">
     <div class="fld">
-      <label for="fKey">YouTube Data API キー</label>
-      <input type="password" id="fKey" placeholder="AIza...">
-      <div class="hint">HTTPリファラー制限をかけて使ってください。未設定でもデモ編成は動きます。</div>
+      <label for="fSbUrl">Supabase URL</label>
+      <input type="text" id="fSbUrl" placeholder="https://xxxx.supabase.co">
+    </div>
+    <div class="fld">
+      <label for="fSbKey">Supabase anon キー</label>
+      <input type="password" id="fSbKey" placeholder="eyJ...">
+      <div class="hint">anon キーは公開される前提のものです。RLSで読み取り専用にしてあるので、これだけでは番組表を書き換えられません。</div>
     </div>
     <div class="fld">
       <label for="fRegion">地域コード</label>
       <input type="text" id="fRegion" value="JP">
-    </div>
-    <div class="fld"><label class="chk"><input type="checkbox" id="fLive" checked> ライブ配信を実時間で取り込む</label>
-      <div class="hint">search.list を1回使うため100ユニット消費します。日次上限は10,000です。</div>
+      <div class="hint">epg_cache の key と一致させてください。</div>
     </div>
     <div class="fld">
-      <label for="fSbUrl">Supabase URL（任意・取得結果のキャッシュ用）</label>
-      <input type="text" id="fSbUrl" placeholder="https://xxxx.supabase.co">
+      <label>構成</label>
+      <div class="sql">pg_cron ──3時間おき──&gt; Edge Function (epg-sync)
+                              |  YT_API_KEY はここだけ
+                              v
+                         YouTube Data API
+                              |
+                              v
+                          epg_cache  &lt;── このアプリが読む(select のみ)</div>
+      <div class="hint">YouTube APIキーはブラウザに存在しません。素材の更新はサーバー側で完結します。</div>
     </div>
-    <div class="fld">
-      <label for="fSbKey">Supabase anon キー（任意）</label>
-      <input type="password" id="fSbKey" placeholder="eyJ...">
-    </div>
-    <div class="fld">
-      <label for="fTtl">キャッシュ有効時間（分）</label>
-      <input type="text" id="fTtl" value="180">
-      <div class="hint">キャッシュが新しければYouTube APIを叩かずに再描画します。</div>
-    </div>
-    <div class="fld">
-      <label>Supabase側のテーブル定義</label>
-      <div class="sql">create table epg_cache (
-  key text primary key,
-  payload jsonb not null,
-  updated_at timestamptz not null default now()
-);
-alter table epg_cache enable row level security;
-create policy "allow all" on epg_cache for all using (true) with check (true);</div>
-    </div>
-    <div class="hint">この画面の値はページを開いている間だけ保持されます。デプロイ時は下記スクリプト冒頭の DEFAULTS に直接書き込んでください。</div>
+    <div class="hint">この画面の値はページを開いている間だけ保持されます。デプロイ時はスクリプト冒頭の DEFAULTS に書き込んでください。</div>
   </div>
 </div></div>
 
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 /* ============================================================
-   DEPLOY: ここに値を入れておくと設定画面なしで動きます
+   DEPLOY: Supabase の接続情報だけを持たせます。
+   YouTube APIキーはEdge Function側にあり、ブラウザには一切出ません。
    ============================================================ */
 var DEFAULTS = {
-  ytKey: '',
   region: 'JP',
-  fetchLive: true,
-  sbUrl: '',
-  sbKey: '',
-  ttlMin: 180
+  sbUrl: 'https://cbfwgnjsguhcobwejsaw.supabase.co',
+  sbKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNiZndnbmpzZ3VoY29id2Vqc2F3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzOTI5OTMsImV4cCI6MjEwNDk2ODk5M30.8thai4K-_nkR-oXBtoqvjzqNRWsbOpSdNLGPp6OJfAo'
 };
 
 var CH = [
@@ -213,14 +201,11 @@ var CH = [
 var CAT2CH = {};
 CH.forEach(function(c){ c.cats.forEach(function(k){ CAT2CH[k] = c.no; }); });
 
-var MIN_SEC = 120;        /* これより短い動画は番組にしない（Shorts除外） */
-var MAX_SEC = 4 * 3600;   /* 長すぎる動画は1本で枠を埋めるので除外 */
 var MIN_SLOT = 120000;    /* 2分未満の隙間は前番組を延長して埋める */
 var ZOOMS = [1.4, 2.2, 3.4];
 
 var cfg = {
-  ytKey: DEFAULTS.ytKey, region: DEFAULTS.region, fetchLive: DEFAULTS.fetchLive,
-  sbUrl: DEFAULTS.sbUrl, sbKey: DEFAULTS.sbKey, ttlMin: DEFAULTS.ttlMin
+  region: DEFAULTS.region, sbUrl: DEFAULTS.sbUrl, sbKey: DEFAULTS.sbKey
 };
 var pxPerMin = ZOOMS[1];
 var schedule = {};      /* chNo -> blocks[] */
@@ -527,8 +512,10 @@ function play(idx, fromHead){
 
 function onPlayerError(){
   var e = document.getElementById('pErr');
-  e.textContent = 'この動画は埋め込み再生できません。次回の取得時に編成から除外されます。';
+  e.textContent = 'この動画は埋め込み再生できません。除外リストに報告したので、次回の素材更新から編成に出なくなります。';
   e.classList.add('on');
+  var b = flatBlocks[editingBlockIdx];
+  if (b && b.videoId) reportBlocked(b.videoId, 'iframe player error');
 }
 
 function closePlayer(){
@@ -561,170 +548,62 @@ function setStatus(msg, bad){
   el.className = 'status' + (bad ? ' bad' : '');
 }
 
-function ytUrl(path, params){
-  var u = 'https://www.googleapis.com/youtube/v3/' + path + '?';
-  var parts = [];
-  Object.keys(params).forEach(function(k){
-    parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
-  });
-  parts.push('key=' + encodeURIComponent(cfg.ytKey));
-  return u + parts.join('&');
+function sbHeaders(){
+  return { apikey: cfg.sbKey, Authorization: 'Bearer ' + cfg.sbKey };
 }
 
-async function ytFetch(path, params){
-  var r = await fetch(ytUrl(path, params));
-  if (!r.ok){
-    var t = await r.text();
-    var msg = r.status + '';
-    try { msg = JSON.parse(t).error.message; } catch (e) {}
-    throw new Error(msg);
-  }
-  return r.json();
-}
-
-function blockedHere(it){
-  var rr = it.contentDetails && it.contentDetails.regionRestriction;
-  if (!rr) return false;
-  if (rr.blocked && rr.blocked.indexOf(cfg.region) >= 0) return true;
-  if (rr.allowed && rr.allowed.indexOf(cfg.region) < 0) return true;
-  return false;
-}
-
-function toVideo(it){
-  if (!it.status || it.status.embeddable !== true) return null;
-  if (it.status.privacyStatus !== 'public') return null;
-  if (blockedHere(it)) return null;
-  var sec = parseDur(it.contentDetails && it.contentDetails.duration);
-  if (sec < MIN_SEC || sec > MAX_SEC) return null;
-  var ch = CAT2CH[it.snippet.categoryId];
-  if (!ch) return null;
-  return {
-    videoId: it.id, title: it.snippet.title, channelTitle: it.snippet.channelTitle,
-    thumb: (it.snippet.thumbnails && it.snippet.thumbnails.medium) ? it.snippet.thumbnails.medium.url : '',
-    durSec: sec, ch: ch
-  };
-}
-
-function toLive(it){
-  if (!it.status || it.status.embeddable !== true) return null;
-  if (blockedHere(it)) return null;
-  var d = it.liveStreamingDetails || {};
-  var st = d.actualStartTime || d.scheduledStartTime;
-  if (!st) return null;
-  var start = new Date(st).getTime();
-  var end = d.scheduledEndTime ? new Date(d.scheduledEndTime).getTime() : start + 7200000;
-  if (!(end > start)) return null;
-  var ch = CAT2CH[it.snippet.categoryId] || 4;
-  return {
-    videoId: it.id, title: it.snippet.title, channelTitle: it.snippet.channelTitle,
-    thumb: (it.snippet.thumbnails && it.snippet.thumbnails.medium) ? it.snippet.thumbnails.medium.url : '',
-    start: start, end: end, ch: ch
-  };
-}
-
-async function harvest(){
-  var cats = Object.keys(CAT2CH);
-  var seen = {}, vids = [], lives = [], errs = [];
-
-  for (var i = 0; i < cats.length; i++){
-    setStatus('取得中 ' + (i+1) + '/' + cats.length + ' カテゴリ…');
-    try {
-      var d = await ytFetch('videos', {
-        part: 'snippet,contentDetails,status',
-        chart: 'mostPopular', regionCode: cfg.region,
-        videoCategoryId: cats[i], maxResults: 50
-      });
-      (d.items || []).forEach(function(it){
-        if (seen[it.id]) return;
-        var v = toVideo(it);
-        if (v){ seen[it.id] = 1; vids.push(v); }
-      });
-    } catch (e){
-      errs.push('cat ' + cats[i] + ': ' + e.message);
-    }
-  }
-
-  if (cfg.fetchLive){
-    setStatus('ライブ配信を取得中…');
-    try {
-      var s = await ytFetch('search', {
-        part: 'snippet', eventType: 'live', type: 'video',
-        regionCode: cfg.region, order: 'viewCount', maxResults: 25
-      });
-      var ids = (s.items || []).map(function(x){ return x.id && x.id.videoId; })
-                               .filter(Boolean).join(',');
-      if (ids){
-        var d2 = await ytFetch('videos', {
-          part: 'snippet,contentDetails,status,liveStreamingDetails', id: ids
-        });
-        (d2.items || []).forEach(function(it){
-          var l = toLive(it);
-          if (l) lives.push(l);
-        });
-      }
-    } catch (e){
-      errs.push('live: ' + e.message);
-    }
-  }
-  return { vids: vids, lives: lives, errs: errs };
-}
-
-/* Supabase キャッシュ（任意） */
-async function cacheGet(){
-  if (!cfg.sbUrl || !cfg.sbKey) return null;
+/* 番組表を読むだけ。YouTube APIはEdge Function側なので、ここからは触らない */
+async function loadFromCache(){
   var url = cfg.sbUrl.replace(/\/$/, '') + '/rest/v1/epg_cache?key=eq.' +
             encodeURIComponent(cfg.region) + '&select=payload,updated_at&limit=1';
-  var r = await fetch(url, { headers: { apikey: cfg.sbKey, Authorization: 'Bearer ' + cfg.sbKey } });
-  if (!r.ok) return null;
+  var r = await fetch(url, { headers: sbHeaders() });
+  if (!r.ok) throw new Error('Supabase ' + r.status + ' ' + (await r.text()).slice(0, 160));
   var rows = await r.json();
-  if (!rows.length) return null;
-  var age = (Date.now() - new Date(rows[0].updated_at).getTime()) / 60000;
-  if (age > (+cfg.ttlMin || 180)) return null;
-  return rows[0].payload;
+  if (!rows.length) throw new Error('epg_cache に ' + cfg.region + ' の行がありません。Edge Functionを一度実行してください。');
+  return { payload: rows[0].payload, updatedAt: rows[0].updated_at };
 }
 
-async function cachePut(payload){
-  if (!cfg.sbUrl || !cfg.sbKey) return;
-  var url = cfg.sbUrl.replace(/\/$/, '') + '/rest/v1/epg_cache?on_conflict=key';
-  await fetch(url, {
-    method: 'POST',
-    headers: {
-      apikey: cfg.sbKey, Authorization: 'Bearer ' + cfg.sbKey,
-      'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates'
-    },
-    body: JSON.stringify({ key: cfg.region, payload: payload, updated_at: new Date().toISOString() })
-  });
+/* 再生できなかった動画を報告する。insertのみ許可されたテーブル */
+async function reportBlocked(videoId, reason){
+  if (!cfg.sbUrl || !cfg.sbKey || !videoId) return;
+  try {
+    await fetch(cfg.sbUrl.replace(/\/$/, '') + '/rest/v1/blocked_videos', {
+      method: 'POST',
+      headers: Object.assign(sbHeaders(), {
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=ignore-duplicates,return=minimal'
+      }),
+      body: JSON.stringify({ video_id: videoId, reason: reason || 'playback error' })
+    });
+  } catch (e) { /* 報告失敗は視聴を止める理由にならないので握りつぶす */ }
 }
 
 async function loadReal(){
-  if (!cfg.ytKey && !cfg.sbUrl){
-    setStatus('YouTube APIキーが未設定です。設定から入力してください。', true);
+  if (!cfg.sbUrl || !cfg.sbKey){
+    setStatus('Supabaseの接続情報が未設定です。設定から入力してください。', true);
     return;
   }
   var btn = document.getElementById('btnLoad');
   btn.disabled = true;
   try {
-    var data = null, cached = false;
-    try { data = await cacheGet(); cached = !!data; } catch (e) {}
-    if (!data){
-      if (!cfg.ytKey) throw new Error('キャッシュがなく、APIキーも未設定です');
-      data = await harvest();
-      try { await cachePut({ vids: data.vids, lives: data.lives }); } catch (e) {}
-    }
+    var res = await loadFromCache();
+    var data = res.payload || {};
     if (!data.vids || !data.vids.length){
-      setStatus('番組にできる動画が取得できませんでした。' +
-                (data.errs && data.errs.length ? ' / ' + data.errs.join(' / ') : ''), true);
+      setStatus('キャッシュに番組素材が入っていません。Edge Functionのログを確認してください。', true);
       return;
     }
     schedule = buildSchedule(data.vids, data.lives || [], new Date());
     render();
     scrollToNow();
-    setStatus('編成完了：動画 ' + data.vids.length + '本 / ライブ ' + (data.lives || []).length + '本' +
-              (cached ? '（キャッシュから）' : '') +
-              (data.errs && data.errs.length ? ' / 一部失敗: ' + data.errs.join(' / ') : ''),
+
+    var age = Math.round((Date.now() - new Date(res.updatedAt).getTime()) / 60000);
+    var ageLabel = age < 60 ? age + '分前' : Math.floor(age / 60) + '時間前';
+    setStatus('編成完了：動画 ' + data.vids.length + '本 / ライブ ' + (data.lives || []).length +
+              '本（素材の取得は' + ageLabel + '）' +
+              (data.errs && data.errs.length ? ' / 取得時の警告: ' + data.errs.join(' / ') : ''),
               !!(data.errs && data.errs.length));
   } catch (e){
-    setStatus('取得に失敗しました：' + e.message, true);
+    setStatus('番組表の取得に失敗しました：' + e.message, true);
   } finally {
     btn.disabled = false;
   }
@@ -826,21 +705,15 @@ document.getElementById('ovPlay').addEventListener('click', function(e){
 });
 
 document.getElementById('btnSet').addEventListener('click', function(){
-  document.getElementById('fKey').value = cfg.ytKey;
-  document.getElementById('fRegion').value = cfg.region;
-  document.getElementById('fLive').checked = cfg.fetchLive;
   document.getElementById('fSbUrl').value = cfg.sbUrl;
   document.getElementById('fSbKey').value = cfg.sbKey;
-  document.getElementById('fTtl').value = cfg.ttlMin;
+  document.getElementById('fRegion').value = cfg.region;
   document.getElementById('ovSet').classList.add('on');
 });
 document.getElementById('sClose').addEventListener('click', function(){
-  cfg.ytKey = document.getElementById('fKey').value.trim();
-  cfg.region = document.getElementById('fRegion').value.trim().toUpperCase() || 'JP';
-  cfg.fetchLive = document.getElementById('fLive').checked;
   cfg.sbUrl = document.getElementById('fSbUrl').value.trim();
   cfg.sbKey = document.getElementById('fSbKey').value.trim();
-  cfg.ttlMin = +document.getElementById('fTtl').value || 180;
+  cfg.region = document.getElementById('fRegion').value.trim().toUpperCase() || 'JP';
   document.getElementById('ovSet').classList.remove('on');
 });
 document.getElementById('ovSet').addEventListener('click', function(e){
